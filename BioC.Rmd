@@ -1,0 +1,389 @@
+---
+title: "Storage and Analysis of Microbiome Quality Control Project Data through phyloseq Package"
+author: Karun Rajesh
+date: June 26, 2019
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+fontsize: 12pt
+output: beamer_presentation
+  
+incremental: true
+editor_options:
+    
+    chunk_output_type: console
+always_allow_html: yes  
+---
+
+
+```{r, echo = FALSE}
+rm(list=ls())
+
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+```
+
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  echo = FALSE, 
+  message=FALSE
+)
+```
+
+
+
+```{r, echo = FALSE}
+set.seed(12341)
+
+#packages for salter data
+library(data.table)
+#library(decontam)
+library(Matrix)
+library(ggplot2)
+library(dplyr)
+library("reshape2")
+library(phyloseq)
+library(reshape2)#;packageVersion("reshape2")
+library(xtable)
+library(knitr)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+library(DT)
+library(Matrix)
+library(devtools)
+require(ggplot2)
+require(sn)
+require(fitdistrplus)
+require(psych) 
+#library(PERFect)
+library(dirmult)
+library(HMP)
+library(knitr)
+library(png)
+library(gridExtra)
+library(grid)
+library(reshape2)
+library(zoo)
+library(here)
+
+
+setwd(here::here())
+#setwd("~/Dropbox/MicrobiomeFiltering/Code/Karun")
+#setwd("~/Documents/Katia Lab/MockCommunity/Data")
+
+```
+
+
+# Microbiome  studies
+
+* Microbiome: collection of all microbe genes in a community
+
+
+* Associated with 
+
+    + liver diseases 
+    + pre-term birth 
+    + type 2 diabetes  
+    + inflammatory bowel disease
+
+* Data: 
+
+    + Wet lab: Next generation sequencing (NGS) to produce the number of DNA fragments 
+    + Dry lab: assign DNA fragments to a group of microbes
+  
+# Microbiome  quality control: current state of art 
+
+* Increasing attention to microbiome over the last decade
+
+* Strong scientific focus: multiple emerging studies
+
+* Much smaller number of quality control and lab-to-lab variability studies
+
+* Our goals: 
+
+    + Provide easy-to-use community resources to study microbiome data
+    + Increase awareness to the importance of addressing technical variability
+    
+
+    
+```{r, echo= TRUE, eval =FALSE, size = 'tiny'}
+temp <- tempfile()
+download.file("http://downloads.ihmpdcc.org/data/MBQC/mbqc_integrated_otus.tsv.gz",temp)
+tf.ampli <- read.table(gzfile(temp), sep = '\t', header = TRUE)
+unlink(temp)
+
+```
+
+# Process Pipeline
+
+```{r, echo=FALSE,  out.height='50%',out.width = '100%',results='hold'}
+knitr::include_graphics(here::here("design.jpeg"))
+```
+
+# Reading data
+* Original file: something.tsv Size: 1.9 Gb
+* Processing Script: hithublink 
+* Processed file: physeq.rds Size: 28.6 Mb
+```{r}
+#set paste0(get.wd(), "tmp", MBQC_Data.rds)
+#rds = paste0(get.wd(), "tmp", MBQC_Data.rds)
+#physeq = readRDS(rds)
+```
+
+```{r, echo = TRUE, size = 'tiny'}
+physeq = readRDS("MBQC_Data.rds")
+physeq
+
+#head(tax_table(physeq))
+```
+
+# Accessing samples
+
+```{r Subsetting, echo = TRUE, size = 'small'}
+
+freshSamples = subset_samples(physeq,
+      specimen_type_collapsed=="Fresh")
+robogutSamples = subset_samples(physeq,
+      specimen_type_collapsed=="Robogut")
+fecalArtSamples = subset_samples(physeq,
+      specimen_type_collapsed=="Fecal artificial colony")
+freezeDriedSamples = subset_samples(physeq,
+      specimen_type_collapsed=="Freeze-dried")
+oralArtSamples = subset_samples(physeq,
+      specimen_type_collapsed=="Oral artificial colony")
+```
+
+    
+
+
+```{r Subset}
+##### SAMPLE #####
+sampT <- table(get_variable(physeq,"specimen_type_collapsed"))
+sampPro <- round(sampT/sum(sampT),2)
+##################
+
+##### GENDER #####
+gendT <- table(get_variable(physeq,"sex"))
+gendPro <- round(gendT/sum(gendT),2)
+##################
+
+##### PROCESSING LAB #####
+
+labT <- table(get_variable(physeq,"blinded_lab"))
+labPro <- round(labT/sum(labT),2)
+###########################
+
+##### HEALTH #####
+healthT <- table(get_variable(physeq,"health_status_collapsed"))
+healthPro <- round(healthT/sum(healthT),2)
+##################
+
+##### BNFO LAB #####
+bnfoT <- table(get_variable(physeq,"dry_lab"))
+bnfoPro <- round(bnfoT/sum(bnfoT),2)
+####################
+```
+    
+
+#
+
+```{r Tables, eval= TRUE}
+#Get rownames of each factor
+names = c(rownames(sampT),rownames(gendT), rownames(healthT), rownames(labT), rownames(bnfoT))
+hello <- matrix(c(sampT,gendT,labT,healthT,bnfoT,sampPro,gendPro,healthPro, labPro, bnfoPro), ncol=2)
+colnames(hello) <- c("Number of Samples","Proportion")
+rownames(hello) <- names
+kable(hello[1:11, ], booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "scale_down")) %>%
+  group_rows("Sample Type", 1, 6) %>%
+  group_rows("Gender", 7, 9) %>%
+  group_rows("Condition", 10, 11) 
+
+#################
+```
+
+
+
+```{r, eval = TRUE, size = 'tiny', results = 'hide'}
+kable(hello[12:24,], booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "scale_down")) %>%
+  group_rows("Processing Lab", 1, 13) 
+```
+
+
+
+```{r, eval = TRUE, size = 'small', results = 'hide'}
+kable(hello[25:32,], booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "scale_down")) %>%
+  group_rows("Bioinformatics Lab", 1, 8) 
+```
+
+<!--
+# Summary Statistics Table
+
+* Generated from sample statistics
+* Includes number of samples and proportion of sample statistic
+* Interpreting Numbers:
+    + There were not 13,746 people as indicated by the gender section
+    + Numbers are representative of the aliquots of the initial sample
+    + Each sample is a small portion of a larger sample
+ 
+--->    
+
+   
+
+```{r Two-Way Tables}
+#####Two-Way Tables#####
+twoLab <- table(get_variable(physeq,c("dry_lab","blinded_lab")))#processing lab + bnfo lab
+twoSL <- table(get_variable(physeq,c("specimen_type_collapsed","blinded_lab"))) #sample + processing lab
+twoSB <- table(get_variable(physeq,c("specimen_type_collapsed","dry_lab"))) #sample + bnfo lab
+```
+
+
+```{r twoLab, echo=FALSE, eval=TRUE, size = 'small', results = 'hide'}
+kable(t(twoLab), booktabs = T) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+
+```{r twoSL, echo=FALSE, eval=TRUE, size = 'tiny', results = 'hide'}
+kable(t(twoSL), booktabs = T) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+
+
+
+```{r twoSB, echo=FALSE, eval= FALSE, results = 'hide'}
+kable(twoSB, booktabs = T) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+#
+
+
+```{r alphadiv}
+#Read in phyloseq file for oral artificial community
+#Take out all OTUs with reads < 1
+GP <- prune_species(speciesSums(oralArtSamples) > 0, oralArtSamples)
+#Plot Shannon and Simpson Diversity index
+richness_measures <-c("Shannon", "Simpson")
+plot_richness(GP, x="blinded_lab", measures=richness_measures) +
+stat_boxplot(geom ="errorbar") +
+    geom_boxplot() +
+    theme_bw()
+```
+
+# 
+
+```{r heatmap, eval=FALSE}
+#### CHANGE TO JSS PAPER CODE #### 
+# Check the dataset
+#CountsData <- data.frame(otu_table(mock)) #27211 taxa, 1016 samples.
+CountsData <- otu_table(oralArtSamples) #27211 taxa, 1016 samples.
+summary(as.vector(CountsData))
+table(CountsData)
+colnames(CountsData)
+row.names(CountsData)
+freq_check = plyr::count(as.vector(CountsData))
+
+metadata <- sample_data(oralArtSamples)
+dim(metadata)
+colnames(metadata)
+
+taxa_data <- tax_table(oralArtSamples)
+dim(taxa_data) # 27211 x 6
+colnames(taxa_data)
+levels(as.factor(taxa_data[,"Phylum"])) # 142 Phyla ,142 classes, 1298 family, 1307 Genus
+
+acido <- which(as.factor(taxa_data[,"Phylum"]) %in% "Acidobacteria")
+chlam <- which(as.factor(taxa_data[,"Phylum"]) %in% "Chlamydiae")
+
+# Extract the index for each lab in the who OTU table
+BL1 <- grep("BL.1.",colnames(CountsData))
+BL2 <- grep("BL.2.",colnames(CountsData))
+BL3 <- grep("BL.3.",colnames(CountsData))
+BL4 <- grep("BL.4.",colnames(CountsData))
+BL6 <- grep("BL.6.",colnames(CountsData))
+BL8 <- grep("BL.8.",colnames(CountsData))
+BL9A <- grep("BL.9A.",colnames(CountsData))
+BL9B <- grep("BL.9B.",colnames(CountsData))
+
+## Analysis of top n abundance taxa
+abun <- t(CountsData)
+abun[abun==1] <- 0
+Order <- names(sort(apply(abun, 2, nnzero), decreasing = TRUE))
+Counts.mat <- abun[,Order]
+Counts.mat <- as.data.frame(Counts.mat[1:600,1:200])
+Counts.mat.log <- as.matrix(Counts.mat)
+Counts.mat.log[Counts.mat.log >1] <- log(Counts.mat.log[Counts.mat.log >1])
+summary(as.vector(Counts.mat.log[Counts.mat.log!=0])) # check the range of log(OTU) 
+Counts.m <- melt(Counts.mat.log[,1:dim(Counts.mat.log)[2]], na.rm = TRUE)
+summary(Counts.m$value) # double check the range of log(OTU) 
+########
+#heatmap
+Counts_HM <- ggplot(data = Counts.m, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "white", high = "green", mid = "red",
+                       midpoint = 3, limit = c(0,6),
+                       space = "Lab",
+                       name="") +
+  theme(axis.text.x=element_blank(),axis.text.y=element_blank(),text = element_text(size=21)) +
+  xlab("Taxa") +ylab("Samples")
+Counts_HM
+ggsave(paste(pathtoplots, "mockheatmap_top200taxa_600sam.png", sep=""), Counts_HM)
+
+######
+
+```
+
+```{r, echo=FALSE,  out.height='100%',out.width = '100%',results='hold'}
+#img1 <-  rasterGrob(as.raster(readPNG("mockheatmap_top200taxa_600sam.png")), interpolate = FALSE)
+#img2 <-  rasterGrob(as.raster(readPNG("mockheatmap_top100taxa_600sam.png")), interpolate = FALSE)
+knitr::include_graphics(here::here("mockheatmap_top200taxa_600sam.png"))
+#grid.arrange(img1, img2, ncol = 2)
+```
+
+# 
+
+```{r full}
+#Counts.mat <- topabun2
+#Counts.mat <- as.data.frame(Counts.mat)
+#Counts.mat[Counts.mat==0] <- 1    
+#psa <- phyloseq(otu_table(Counts.mat, taxa_are_rows=FALSE), sample_data(mock))
+#psa <- prune_samples(sample_sums(psa) > 0, psa)
+#psa <- transform_sample_counts(psa, function(otu) otu/sum(otu))
+#p.ord.ampli <- plot_ordination(psa, ordinate(psa, distance="bray", method="MDS"),
+#                               color="dry_lab") +
+#  theme_bw() + theme(axis.text=element_blank()) +
+#  theme(panel.grid=element_blank(), axis.ticks=element_blank(),
+#        strip.text=element_text(size=20),text = element_text(size=25), legend.title = element_blank()) +
+#  geom_point(size = 4)
+
+img4 <-  rasterGrob(as.raster(readPNG("mds_bl_full.png")), interpolate = FALSE)
+grid.arrange(img3, img4, ncol = 2)
+```
+# Conclusions
+* When integrating microbial data from various labs, caution must be taken
+    + More beneficial to run through same bioinformatics pipeline
+*
